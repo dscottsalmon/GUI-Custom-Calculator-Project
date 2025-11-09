@@ -12,32 +12,29 @@ import operator
 def format_number(num, for_display=False):
     """
     Format number for display or input.
-
-    - for_display=False → live input / ANS insertion (truncate digits, scientific if >=1e9)
-    - for_display=True  → final results / ANS label (spacing or scientific)
     """
     try:
         n = float(num)
-    except:
+    except Exception:
+        # Always return string for non-numeric input
         return str(num)
 
+    # Very large numbers -> scientific notation
     if abs(n) >= 1e9:
-        # Always show 2 decimals in scientific notation
         return f"{n:.2e}"
-    
+
     if for_display:
-        # Final results / ANS label for numbers < 1e9
-        int_part, dot, dec_part = f"{n}".partition('.')
-        int_part = "{:,}".format(int(int_part)).replace(",", " ")
-        return int_part + (dot + dec_part if dec_part else '')
+        # Round to 8 decimal places for final results
+        n = round(n, 8)
+        s = f"{n:,.8f}".replace(",", " ")
+        s = s.rstrip('0').rstrip('.')  # remove trailing zeros and dot if needed
+        return s
     else:
-        # Live input < 1e9 → max 8 significant digits
-        return f"{n:.8g}"
-
-
-
+        # Live input display — max 8 significant digits
+        return f"{round(n, 8):.8g}"
 
 def safe_calculate(expr):
+
     """Safely evaluate mathematical expressions."""
     expr = expr.replace('x', '*').strip()
     
@@ -101,34 +98,33 @@ def handle_key(event):
 # ------------------------
 
 def update_display():
-    """Convert raw_expr to display string with formatted numbers."""
+    """Convert raw_expr to display string with formatted numbers and hide '*'."""
     if not raw_expr:
         display_var.set("")
         return
-    
-    tokens = raw_expr.split(' ')
+
+    # Replace internal '*' with nothing for display purposes
+    expr_for_display = raw_expr.replace('*', '')
+
+    tokens = expr_for_display.split(' ')
     display_tokens = []
-    
+
     for token in tokens:
         token = token.strip()
         if not token:
             continue
-        # If it's an operator, keep as-is
-        if token in '+-x/':
+        if token in '+-x/()':
             display_tokens.append(token)
         else:
-            # It's a number - format it
             display_tokens.append(format_number(token, for_display=False))
-    
-    display_var.set(' '.join(display_tokens))
 
+    display_var.set(' '.join(display_tokens))
 
 def update_ans_label():
     if last_result is not None:
         ans_label_var.set(f"ANS: {format_number(last_result, for_display=True)}")
     else:
         ans_label_var.set("ANS: ")
-
 
 def update_runtime():
     elapsed = int(time.time() - start_time)
@@ -246,6 +242,42 @@ def backspace():
         raw_expr = raw_expr[:-1].rstrip()  # Remove char and trailing spaces
         update_display()
 
+def bracket():
+
+    global raw_expr, just_calculated
+    
+    if just_calculated:
+        raw_expr = ""
+        just_calculated = False
+    
+    # Count current parenthesis balance
+    open_count = raw_expr.count('(')
+    close_count = raw_expr.count(')')
+    
+    # Determine what to insert next
+    if open_count <= close_count:
+        # Need to open a new parenthesis
+        if not raw_expr:
+            # Empty expression - just open
+            raw_expr = "("
+        elif raw_expr[-1] in '0123456789.)':
+            # Number or closing bracket - implicit multiplication
+            raw_expr += "*("
+        else:
+            # Operator or opening bracket - just open
+            raw_expr += "("
+    else:
+        # Need to close an existing parenthesis
+        if raw_expr and raw_expr[-1] in '(+-x/':
+            # Don't close after operator or opening bracket
+            # Insert 0 to make valid expression
+            raw_expr += "0)"
+        else:
+            # Safe to close
+            raw_expr += ")"
+    
+    update_display()
+
 
 def calculate():
     global raw_expr, last_result, just_calculated, calculation_count
@@ -283,7 +315,8 @@ def use_ans():
     if last_result is None:
         return
 
-    ans_str = format_number(last_result, for_display=False)
+    # Always use the raw float value, not a formatted string
+    ans_str = str(float(last_result))
 
     if just_calculated:
         raw_expr = ans_str
@@ -291,11 +324,13 @@ def use_ans():
         update_display()
         return
 
-    if raw_expr and raw_expr[-1] in '+-x/ ':
-        raw_expr += ans_str
-    elif not raw_expr:
-        raw_expr = ans_str
+    if raw_expr and (raw_expr[-1].isdigit() or raw_expr[-1] == ')'):
+        # Implicit multiply if ANS follows a number or bracket
+        raw_expr += '*'
+    elif raw_expr and raw_expr[-1] not in '+-x/ ':
+        raw_expr += ' '
 
+    raw_expr += ans_str
     update_display()
 
 
@@ -341,7 +376,7 @@ input_frame = ttk.Frame(master=window)
 input_frame.pack(pady=20)
 
 button_layout = [
-    ['⌫', 'a', 'ANS', '/'],
+    ['⌫', '( )', 'ANS', '/'],
     [7, 8, 9, 'x'],
     [4, 5, 6, '-'],
     [1, 2, 3, '+'],
@@ -350,12 +385,14 @@ button_layout = [
 
 for r, row in enumerate(button_layout):
     for c, value in enumerate(row):
-        if isinstance(value, str) and value not in ('x','-','+','=','+/-','.','/','ANS', "⌫"):
+        if isinstance(value, str) and value not in ('x','-','+','=','+/-','.','/','ANS', "⌫", "( )"):
             btn = ttk.Button(master=input_frame, text=value, width=8, state='disabled')
         elif value == '+/-':
             btn = ttk.Button(master=input_frame, text=value, width=8, command=sign)
         elif value in ('+','-','x','/'):
             btn = ttk.Button(master=input_frame, text=value, width=8, command=lambda op=value: operator(op))
+        elif value == "( )":
+            btn = ttk.Button(master=input_frame, text=value, width=8, command=bracket)
         elif value == 'ANS':
             btn = ttk.Button(master=input_frame, text=value, width=8, command=use_ans)
         elif value == '=':
