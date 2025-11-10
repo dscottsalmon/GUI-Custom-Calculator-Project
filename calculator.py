@@ -4,6 +4,7 @@ import ttkbootstrap as ttk
 import re
 import ast
 import operator
+import math
 
 # ------------------------
 # Helper functions
@@ -37,6 +38,7 @@ def safe_calculate(expr):
 
     """Safely evaluate mathematical expressions."""
     expr = expr.replace('x', '*').strip()
+    expr = expr.replace('^', '**').strip()
     
     try:
         # Create a safe namespace with only basic math operations
@@ -50,7 +52,73 @@ def safe_calculate(expr):
     
     except (SyntaxError, ValueError, ZeroDivisionError, NameError, TypeError) as e:
         raise ValueError(f"Calculation error: {str(e)}")
-    
+
+def science():
+    """Toggle scientific calculator buttons beside the main keypad."""
+    # First time setup
+    if not hasattr(window, "science_buttons"):
+        window.science_buttons = []
+        window.science_visible = False
+
+    # If currently visible → hide them
+    if window.science_visible:
+        for btn in window.science_buttons:
+            btn.grid_forget()
+        window.science_visible = False
+        return
+
+    # If currently hidden → show them
+    window.science_buttons.clear()
+    window.science_visible = True
+
+    # Find the last used column in your keypad
+    max_columns = max(len(row) for row in button_layout)
+
+    sci_buttons = [
+        ('sin', lambda: sci_insert('sin(')),
+        ('cos', lambda: sci_insert('cos(')),
+        ('tan', lambda: sci_insert('tan(')),
+        ('√',   lambda: sci_insert('sqrt(')),
+        ('x²',  lambda: sci_insert('^2')),
+        ('xʸ',  lambda: sci_insert('^')),
+        ('π',   lambda: sci_insert('3.1415926535')),
+        ('e',   lambda: sci_insert('2.7182818284')),
+        ('ln',  lambda: sci_insert('ln(')),
+        ('log₁₀', lambda: sci_insert('log10(')),
+        # Placeholder buttons
+        ('a', lambda: sci_insert('a')),
+        ('b', lambda: sci_insert('b')),
+        ('c', lambda: sci_insert('c')),
+        ('d', lambda: sci_insert('d')),
+        ('e', lambda: sci_insert('e')),
+        ('f', lambda: sci_insert('f')),
+        ('g', lambda: sci_insert('g')),
+        ('h', lambda: sci_insert('h')),
+        ('i', lambda: sci_insert('i')),
+        ('j', lambda: sci_insert('j')),
+    ]
+
+    # Create and place them to the right of the main keypad
+    for i, (label, cmd) in enumerate(sci_buttons):
+        btn = ttk.Button(
+            master=input_frame,
+            text=label,
+            width=8,
+            bootstyle="secondary",
+            command=cmd
+        )
+        btn.grid(row=i % 5, column=max_columns + (i // 5), padx=15, pady=15)
+        window.science_buttons.append(btn)
+
+def sci_insert(text):
+    """Insert scientific function text into the current expression."""
+    global raw_expr, just_calculated
+    if just_calculated:
+        raw_expr = ""
+        just_calculated = False
+    raw_expr += str(text)
+    update_display()
+
 # ------------------------
 # Calculator state
 # ------------------------
@@ -284,32 +352,44 @@ def calculate():
     if not raw_expr:
         return
 
+    # Start from the current raw expression
+    expression = raw_expr
+
+    # Replace operators
+    expression = expression.replace('x', '*')
+    expression = expression.replace('^', '**')
+
+    # Add math. prefix for trig and log functions
+    functions = ['sin', 'cos', 'tan', 'sqrt', 'log10', 'ln']
+    for f in functions:
+        if f == 'ln':
+            expression = expression.replace('ln', 'math.log')
+        else:
+            expression = expression.replace(f, f'math.{f}')
+
     # Strip trailing operators
-    while raw_expr and raw_expr[-1] in '+-x/ ':
-        raw_expr = raw_expr[:-1]
+    while expression and expression[-1] in '+-*/ ':
+        expression = expression[:-1]
 
     try:
-        total = safe_calculate(raw_expr)
+        total = eval(expression, {"__builtins__": None, "math": math})
         last_result = total
         calculation_count += 1
         just_calculated = True
-    except ValueError:
+    except Exception:
         total = 'Error'
         just_calculated = True
         raw_expr = ""
 
-    # Split current display into lines, remove last line if it was a previous result
+    # Update the display with the result
     lines = display_var.get().split('\n')
     if lines and lines[-1].startswith('='):
         lines = lines[:-1]
-
-    # Append current result on a new line
     lines.append(f"= {format_number(total, for_display=True)}")
     display_var.set('\n'.join(lines))
 
     update_ans_label()
-
-
+    
 def use_ans():
     global last_result, raw_expr, just_calculated
     if last_result is None:
@@ -350,8 +430,10 @@ title_label.pack(pady=20, padx=20)
 
 top_frame = ttk.Frame(master=window)
 top_frame.pack(anchor='center', pady=(0,10))
+buttonscientific = ttk.Button(master=top_frame, text="Scientific", command=science, bootstyle="primary", width=8)
 buttonquit = ttk.Button(master=top_frame, text="Quit", command=window.destroy, bootstyle="danger", width=8)
 buttonclear = ttk.Button(master=top_frame, text="Clear", command=clear, bootstyle="info", width=8)
+buttonscientific.pack(side='left', pady=10)
 buttonquit.pack(side='right', pady=10)
 buttonclear.pack(side='right', pady=10)
 
